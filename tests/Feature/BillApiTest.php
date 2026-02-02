@@ -40,8 +40,6 @@ class BillApiTest extends TestCase
                     'bill_account',
                     'due_date',
                     'is_paid',
-                    'created_at',
-                    'updated_at',
                 ],
             ]);
 
@@ -137,10 +135,99 @@ class BillApiTest extends TestCase
 
         $response = $this->postJson('/api/bills', $billData);
 
-        $response->assertStatus(201);
+        $response->assertStatus(201)
+            ->assertJsonStructure([
+                'success',
+                'message',
+                'data' => [
+                    'id',
+                    'amount',
+                    'category',
+                    'bill_account',
+                    'due_date',
+                    'is_paid',
+                ],
+            ]);
         $this->assertDatabaseHas('bills', [
             'bill_account' => 'ACCOUNT-002',
             'is_paid' => true,
+        ]);
+    }
+
+    /**
+     * Test GET /api/bills/{id} - Get a single bill
+     */
+    public function test_can_get_single_bill_by_id(): void
+    {
+        $bill = Bill::factory()->create([
+            'amount' => 123.45,
+            'category' => 'Internet',
+            'bill_account' => 'ACCOUNT-9999',
+        ]);
+
+        $response = $this->getJson('/api/bills/'.$bill->id);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'data' => [
+                    'id' => $bill->id,
+                    'category' => 'Internet',
+                    'bill_account' => 'ACCOUNT-9999',
+                ],
+            ]);
+    }
+
+    /**
+     * Test PUT /api/bills/{id} - Update bill (partial update)
+     */
+    public function test_can_update_bill_partially(): void
+    {
+        $bill = Bill::factory()->create([
+            'amount' => 100,
+            'category' => 'Utilities',
+        ]);
+
+        $payload = [
+            'amount' => 200.50,
+        ];
+
+        $response = $this->putJson('/api/bills/'.$bill->id, $payload);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'message' => 'Bill updated successfully',
+                'data' => [
+                    'id' => $bill->id,
+                    'amount' => '200.50',
+                ],
+            ]);
+
+        $this->assertDatabaseHas('bills', [
+            'id' => $bill->id,
+            'amount' => 200.50,
+        ]);
+    }
+
+    /**
+     * Test DELETE /api/bills/{id} - Soft delete bill
+     */
+    public function test_can_soft_delete_bill(): void
+    {
+        $bill = Bill::factory()->create();
+
+        $response = $this->deleteJson('/api/bills/'.$bill->id);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'message' => 'Bill deleted successfully',
+            ]);
+
+        // Ensure soft deleted (exists in table but with deleted_at set)
+        $this->assertSoftDeleted('bills', [
+            'id' => $bill->id,
         ]);
     }
 }
