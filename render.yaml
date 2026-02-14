@@ -14,5 +14,9 @@ services:
       - key: LOG_LEVEL
         value: error
     buildCommand: composer install --no-dev --optimize-autoloader
-    startCommand: php artisan migrate --force; apache2-foreground
+    startCommand: bash -c "php artisan migrate --force && php artisan storage:link && apache2-foreground"
     healthCheckPath: /up
+    # Add persistent disk mapping
+    disks:
+      - name: laravel-storage
+        mountPath: /var/www/html/storage
