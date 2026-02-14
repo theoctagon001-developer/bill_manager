@@ -16,12 +16,15 @@ class Bill extends Model
         'bill_account',
         'due_date',
         'is_paid',
+        'is_cleared',
+        'image',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'due_date' => 'date',
         'is_paid' => 'boolean',
+        'is_cleared' => 'boolean',
     ];
 
     /**
@@ -32,4 +35,13 @@ class Bill extends Model
         'updated_at',
         'deleted_at',
     ];
+    public function markAsPaid(): void
+    {
+        $this->update(['is_paid' => true]);
+    }
+
+    public function markAsCleared(): void
+    {
+        $this->update(['is_cleared' => true]);
+    }
 }

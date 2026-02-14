@@ -29,6 +29,9 @@ COPY . /var/www/html
 # Install dependencies (as root, then change ownership)
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
+# Create storage symlink
+RUN php artisan storage:link
+
 # Copy Apache configuration
 COPY docker/apache.conf /etc/apache2/sites-available/000-default.conf
 
