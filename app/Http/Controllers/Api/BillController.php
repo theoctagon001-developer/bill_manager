@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 
 class BillController extends Controller
 {
-    public function dashboard(Request $request): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         $perPage     = (int) $request->get('per_page', 15);
         $billAccount = $request->query('bill_account');
@@ -139,7 +139,7 @@ class BillController extends Controller
     /**
      * Display a listing of the resource with pagination, ordered by date desc.
      */
-    public function index(Request $request): JsonResponse
+    public function dashboard(Request $request): JsonResponse
     {
         $perPage = $request->get('per_page', 15);
 
