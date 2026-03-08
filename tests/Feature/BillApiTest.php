@@ -211,9 +211,9 @@ class BillApiTest extends TestCase
     }
 
     /**
-     * Test DELETE /api/bills/{id} - Soft delete bill
+     * Test DELETE /api/bills/{id} - Permanent delete bill
      */
-    public function test_can_soft_delete_bill(): void
+    public function test_can_delete_bill_permanently(): void
     {
         $bill = Bill::factory()->create();
 
@@ -225,8 +225,7 @@ class BillApiTest extends TestCase
                 'message' => 'Bill deleted successfully',
             ]);
 
-        // Ensure soft deleted (exists in table but with deleted_at set)
-        $this->assertSoftDeleted('bills', [
+        $this->assertDatabaseMissing('bills', [
             'id' => $bill->id,
         ]);
     }
