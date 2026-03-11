@@ -125,25 +125,42 @@ class BillController extends Controller
         $imageUrl = null;
         if ($bill->image) {
             $targetPath = 'bills/' . $bill->id . '.png';
-            if (! Storage::disk('public')->exists($targetPath)) {
+            $disk = Storage::disk('public');
+
+            if (!$disk->exists($targetPath)) {
                 $raw = $bill->image;
                 $decoded = null;
+
                 if (is_string($raw)) {
-                    $isBase64 = preg_match('/^[A-Za-z0-9+\/=]+$/', $raw) && strlen($raw) % 4 === 0;
-                    if ($isBase64) {
+                    // Handle Data URI if present
+                    if (str_contains($raw, ';base64,')) {
+                        $parts = explode(';base64,', $raw);
+                        $raw = end($parts);
+                    }
+
+                    // Strict base64 check and decode
+                    if (preg_match('%^[a-zA-Z0-9/+]*={0,2}$%', $raw)) {
                         $decoded = base64_decode($raw, true);
                     } else {
+                        // If not base64, assume it's raw binary (though we prefer base64 in DB)
                         $decoded = $raw;
                     }
                 }
-                if ($decoded !== null) {
-                    Storage::disk('public')->put($targetPath, $decoded);
+
+                if ($decoded) {
+                    // Ensure directory exists
+                    if (!$disk->exists('bills')) {
+                        $disk->makeDirectory('bills');
+                    }
+                    $disk->put($targetPath, $decoded);
                 }
             }
-            if (Storage::disk('public')->exists($targetPath)) {
+
+            if ($disk->exists($targetPath)) {
                 $imageUrl = asset('storage/' . $targetPath);
             }
         }
+
         return [
             'id' => $bill->id,
             'amount' => (string) $bill->amount,
@@ -204,6 +221,11 @@ class BillController extends Controller
             } elseif ($request->filled('image')) {
                 $img = $request->input('image');
                 if (is_string($img)) {
+                    // Extract base64 if it's a data URI
+                    if (str_contains($img, ';base64,')) {
+                        $parts = explode(';base64,', $img);
+                        $img = end($parts);
+                    }
                     $validated['image'] = $img;
                 }
             }
@@ -273,6 +295,11 @@ class BillController extends Controller
             } elseif ($request->filled('image')) {
                 $img = $request->input('image');
                 if (is_string($img)) {
+                    // Extract base64 if it's a data URI
+                    if (str_contains($img, ';base64,')) {
+                        $parts = explode(';base64,', $img);
+                        $img = end($parts);
+                    }
                     $validated['image'] = $img;
                 }
             }
@@ -336,59 +363,96 @@ class BillController extends Controller
     }
     public function billsDashboard(Request $request): JsonResponse
     {
-        $monthParam = $request->query('month');
-        $yearParam  = $request->query('year');
-        if ($monthParam && $yearParam) {
-            $month = (int) $monthParam;
-            $year  = (int) $yearParam;
-        } else {
-            $month = (int) now()->month;
-            $year  = (int) now()->year;
+        try {
+            $monthParam = $request->query('month');
+            $yearParam  = $request->query('year');
+
+            if ($monthParam && $yearParam) {
+                $month = (int) $monthParam;
+                $year  = (int) $yearParam;
+            } else {
+                $month = (int) now()->month;
+                $year  = (int) now()->year;
+            }
+
+            $bills = Bill::whereYear('due_date', $year)
+                ->whereMonth('due_date', $month)
+                ->orderBy('due_date', 'desc')
+                ->get();
+
+            $totalAmount = (float) $bills->sum('amount');
+            $totalPaidAmount = (float) $bills->where('is_paid', true)->sum('amount');
+            $totalBills = $bills->count();
+            $totalPaidBills = $bills->where('is_paid', true)->count();
+            $unpaidCount = $bills->where('is_paid', false)->count();
+
+            $items = $bills->map(fn(Bill $bill) => $this->transformBill($bill))->values();
+
+            return response()->json([
+                'success' => true,
+                'filters' => [
+                    'month' => $month,
+                    'year' => $year,
+                ],
+                'summary' => [
+                    'total_amount_to_be_paid' => number_format($totalAmount, 2, '.', ''),
+                    'total_paid' => number_format($totalPaidAmount, 2, '.', ''),
+                    'total_bills' => $totalBills,
+                    'total_paid_bills' => $totalPaidBills,
+                    'unpaid_count' => $unpaidCount,
+                ],
+                'data' => $items,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load dashboard data',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-        $bills = Bill::whereYear('due_date', $year)
-            ->whereMonth('due_date', $month)
-            ->orderBy('due_date', 'desc')
-            ->get();
-        $totalAmount = (float) $bills->sum('amount');
-        $totalPaidAmount = (float) $bills->where('is_paid', true)->sum('amount');
-        $totalBills = $bills->count();
-        $totalPaidBills = $bills->where('is_paid', true)->count();
-        $unpaidCount = $bills->where('is_paid', false)->count();
-        $items = $bills->map(fn(Bill $bill) => $this->transformBill($bill))->values();
-        return response()->json([
-            'success' => true,
-            'filters' => [
-                'month' => $month,
-                'year' => $year,
-            ],
-            'summary' => [
-                'total_amount_to_be_paid' => number_format($totalAmount, 2, '.', ''),
-                'total_paid' => number_format($totalPaidAmount, 2, '.', ''),
-                'total_bills' => $totalBills,
-                'total_paid_bills' => $totalPaidBills,
-                'unpaid_count' => $unpaidCount,
-            ],
-            'data' => $items,
-        ]);
     }
     public function updateImage(Request $request, int $id): JsonResponse
     {
-        $bill = Bill::findOrFail($id);
-        $validated = $request->validate([
-            'image' => 'required',
-        ]);
-        if ($request->hasFile('image')) {
-            $content = file_get_contents($request->file('image')->getRealPath());
-            $bill->image = base64_encode($content);
-        } else {
-            $bill->image = $request->input('image');
+        try {
+            $bill = Bill::findOrFail($id);
+            $request->validate([
+                'image' => 'required',
+            ]);
+
+            if ($request->hasFile('image')) {
+                $content = file_get_contents($request->file('image')->getRealPath());
+                $bill->image = base64_encode($content);
+            } else {
+                $img = $request->input('image');
+                if (is_string($img)) {
+                    if (str_contains($img, ';base64,')) {
+                        $parts = explode(';base64,', $img);
+                        $img = end($parts);
+                    }
+                    $bill->image = $img;
+                }
+            }
+
+            $bill->save();
+
+            // Clear local cache file to force regeneration on next GET
+            $targetPath = 'bills/' . $bill->id . '.png';
+            if (Storage::disk('public')->exists($targetPath)) {
+                Storage::disk('public')->delete($targetPath);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bill image updated successfully',
+                'data' => $this->transformBill($bill->fresh()),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update image',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-        $bill->save();
-        return response()->json([
-            'success' => true,
-            'message' => 'Bill image updated successfully',
-            'image_url' => url('storage/bills/' . $bill->id . '.png'),
-        ]);
     }
     public function deleteImage(int $id): JsonResponse
     {
