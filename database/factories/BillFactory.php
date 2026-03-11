@@ -24,7 +24,7 @@ class BillFactory extends Factory
             'category' => fake()->randomElement($categories),
             'bill_account' => 'ACCOUNT-' . fake()->numerify('####'),
             'due_date' => fake()->dateTimeBetween('now', '+30 days')->format('Y-m-d'),
-            'is_paid' => fake()->boolean(30), // 30% chance of being paid
+            'is_paid' => fake()->boolean(30), 
         ];
     }
 }

@@ -26,10 +26,6 @@ class Bill extends Model
         'is_paid' => 'boolean',
         'is_cleared' => 'boolean',
     ];
-
-    /**
-     * Hide internal timestamps and soft delete column from JSON.
-     */
     protected $hidden = [
         'created_at',
         'updated_at',

@@ -12,8 +12,8 @@ class SavingsController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $start = $request->query('start_month');
-        $end = $request->query('end_month');
+        $start = $request->query('start_month', \Carbon\Carbon::now()->format('Y') . '-01');
+        $end = $request->query('end_month', \Carbon\Carbon::now()->format('Y-m'));
         $range = null;
         if ($start && $end) {
             $startParts = explode('-', $start);

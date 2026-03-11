@@ -10,7 +10,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\DB;
 
 class BillController extends Controller
 {
@@ -116,10 +115,6 @@ class BillController extends Controller
             ],
         ]);
     }
-
-    /**
-     * Transform a bill model into the API response shape.
-     */
     protected function transformBill(Bill $bill): array
     {
         $imageUrl = null;
@@ -132,23 +127,18 @@ class BillController extends Controller
                 $decoded = null;
 
                 if (is_string($raw)) {
-                    // Handle Data URI if present
                     if (str_contains($raw, ';base64,')) {
                         $parts = explode(';base64,', $raw);
                         $raw = end($parts);
                     }
-
-                    // Strict base64 check and decode
                     if (preg_match('%^[a-zA-Z0-9/+]*={0,2}$%', $raw)) {
                         $decoded = base64_decode($raw, true);
                     } else {
-                        // If not base64, assume it's raw binary (though we prefer base64 in DB)
                         $decoded = $raw;
                     }
                 }
 
                 if ($decoded) {
-                    // Ensure directory exists
                     if (!$disk->exists('bills')) {
                         $disk->makeDirectory('bills');
                     }
@@ -172,10 +162,6 @@ class BillController extends Controller
             'image' => $imageUrl,
         ];
     }
-
-    /**
-     * Display a listing of the resource with pagination, ordered by date desc.
-     */
     public function dashboard(Request $request): JsonResponse
     {
         $perPage = $request->get('per_page', 15);
@@ -200,10 +186,6 @@ class BillController extends Controller
             ],
         ]);
     }
-
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request): JsonResponse
     {
         try {
@@ -251,11 +233,7 @@ class BillController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Display the specified resource (search by id).
-     */
-    public function show(int $id): JsonResponse
+    public function show($id): JsonResponse
     {
         try {
             $bill = Bill::findOrFail($id);
@@ -271,11 +249,7 @@ class BillController extends Controller
             ], 404);
         }
     }
-
-    /**
-     * Update the specified resource in storage (fields optional).
-     */
-    public function update(Request $request, int $id): JsonResponse
+    public function update(Request $request, $id): JsonResponse
     {
         try {
             $bill = Bill::findOrFail($id);
@@ -295,7 +269,6 @@ class BillController extends Controller
             } elseif ($request->filled('image')) {
                 $img = $request->input('image');
                 if (is_string($img)) {
-                    // Extract base64 if it's a data URI
                     if (str_contains($img, ';base64,')) {
                         $parts = explode(';base64,', $img);
                         $img = end($parts);
@@ -331,11 +304,7 @@ class BillController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Permanently delete the specified bill.
-     */
-    public function destroy(int $id): JsonResponse
+    public function destroy($id): JsonResponse
     {
         try {
             $bill = Bill::findOrFail($id);
@@ -411,7 +380,7 @@ class BillController extends Controller
             ], 500);
         }
     }
-    public function updateImage(Request $request, int $id): JsonResponse
+    public function updateImage(Request $request, $id): JsonResponse
     {
         try {
             $bill = Bill::findOrFail($id);
@@ -434,8 +403,6 @@ class BillController extends Controller
             }
 
             $bill->save();
-
-            // Clear local cache file to force regeneration on next GET
             $targetPath = 'bills/' . $bill->id . '.png';
             if (Storage::disk('public')->exists($targetPath)) {
                 Storage::disk('public')->delete($targetPath);
@@ -454,21 +421,29 @@ class BillController extends Controller
             ], 500);
         }
     }
-    public function deleteImage(int $id): JsonResponse
+    public function deleteImage($id): JsonResponse
     {
-        $bill = Bill::findOrFail($id);
-        $targetPath = 'bills/' . $bill->id . '.png';
-        if (Storage::disk('public')->exists($targetPath)) {
-            Storage::disk('public')->delete($targetPath);
+        try {
+            $bill = Bill::findOrFail($id);
+            $targetPath = 'bills/' . $bill->id . '.png';
+            if (Storage::disk('public')->exists($targetPath)) {
+                Storage::disk('public')->delete($targetPath);
+            }
+            $bill->image = null;
+            $bill->save();
+            return response()->json([
+                'success' => true,
+                'message' => 'Bill image deleted successfully',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete image',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-        $bill->image = null;
-        $bill->save();
-        return response()->json([
-            'success' => true,
-            'message' => 'Bill image deleted successfully',
-        ]);
     }
-    public function downloadImage(int $id)
+    public function downloadImage($id)
     {
         $bill = Bill::findOrFail($id);
 
@@ -492,5 +467,50 @@ class BillController extends Controller
             abort(404, 'Image not found');
         }
         return Storage::disk('public')->download($targetPath);
+    }
+    public function cleanImages(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'date' => 'required|date|before_or_equal:' . now()->subMonth()->toDateString(),
+            ], [
+                'date.before_or_equal' => 'You can only clean images for bills that are at least one month old.',
+            ]);
+            $date = $validated['date'];
+            $disk = Storage::disk('public');
+            $bills = Bill::where('created_at', '<=', $date)
+                ->whereNotNull('image')
+                ->get();
+            $cleanedCount = 0;
+            foreach ($bills as $bill) {
+                $targetPath = 'bills/' . $bill->id . '.png';
+                if ($disk->exists($targetPath)) {
+                    $disk->delete($targetPath);
+                }
+                $bill->image = null;
+                $bill->save();
+                
+                $cleanedCount++;
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cleaned images successfully',
+                'cleaned_count' => $cleanedCount,
+                'cleaned_before' => $date
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to clean images',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }
